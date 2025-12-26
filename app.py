@@ -5,9 +5,9 @@ from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta
 import traceback
-from telegram_bot import send_telegram_message
 
-# 로컬 모듈
+# 로컬 모듈 import
+# 주의: 해당 파일들이 같은 디렉토리에 있어야 합니다.
 from supabase_client import (
     get_user_by_wp_id, 
     get_latest_ga4_data, 
@@ -18,38 +18,34 @@ from supabase_client import (
 from ga4_extractor_template import GA4TemplateExtractor
 from ga4_config import PROPERTY_ID, CREDENTIALS_PATH
 
+# .env 파일 로드
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # WordPress에서 호출 가능하도록
+CORS(app)  # WordPress 또는 프론트엔드 앱에서 호출 가능하도록 허용
 
-# Claude API 클라이언트
+# Claude API 클라이언트 초기화 (환경변수에서 API 키 로드)
 claude = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 @app.route("/")
 def home():
+    """서버 상태 확인을 위한 기본 엔드포인트"""
     return jsonify({
         "service": "FrameFlow GA4 AI API",
         "version": "1.0",
-        "status": "running"
+        "status": "running",
+        "message": "서버가 정상적으로 작동 중입니다."
     })
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """
-    AI 챗봇 엔드포인트
+    AI 챗봇 엔드포인트: GA4 데이터를 기반으로 질문에 답변
     
-    Request:
+    Request Body:
     {
-        "user_id": 1,           # Supabase user ID
+        "user_id": 1,           # Supabase 사용자 고유 ID
         "question": "어제 방문자 몇 명?"
-    }
-    
-    Response:
-    {
-        "answer": "어제는 247명이 방문했습니다.",
-        "tokens_used": 150,
-        "remaining_balance": 9850
     }
     """
     try:
@@ -57,64 +53,64 @@ def chat():
         user_id = data.get("user_id")
         question = data.get("question")
         
+        # 필수 파라미터 체크
         if not user_id or not question:
-            return jsonify({"error": "user_id와 question 필수"}), 400
+            return jsonify({"error": "user_id와 question이 필요합니다."}), 400
         
-        # 1. 최근 GA4 데이터 조회
+        # 1. Supabase에서 해당 사용자의 최신 GA4 데이터 조회
         ga4_data = get_latest_ga4_data(user_id)
         
         if not ga4_data:
-            return jsonify({"error": "GA4 데이터가 없습니다. 먼저 연동하세요."}), 404
+            return jsonify({"error": "조회된 GA4 데이터가 없습니다. 먼저 데이터 동기화를 진행하세요."}), 404
         
-        # 2. Claude에게 컨텍스트 제공
+        # 2. Claude에게 제공할 컨텍스트 생성
         raw_data = ga4_data["raw_data"]
         
-        # 요약 정보만 추출 (토큰 절약)
         context = f"""
 당신은 GA4 데이터 분석 전문가입니다.
+다음은 사용자의 GA4 데이터 요약입니다:
 
-다음은 사용자의 GA4 데이터입니다:
-
-[기간]
+[분석 기간]
 {raw_data['info']['date_range']['start']} ~ {raw_data['info']['date_range']['end']}
 
-[전체 요약]
+[핵심 지표 요약]
 - 활성 사용자: {raw_data.get('summary', {}).get('activeUsers', 0):,}명
 - 세션: {raw_data.get('summary', {}).get('sessions', 0):,}개
 - 페이지뷰: {raw_data.get('summary', {}).get('screenPageViews', 0):,}회
 - 총 수익: ₩{raw_data.get('summary', {}).get('purchaseRevenue', 0):,.0f}
-- 거래: {raw_data.get('summary', {}).get('transactions', 0):,.0f}건
-- 평균 세션 시간: {raw_data.get('summary', {}).get('averageSessionDuration', 0):.1f}초
+- 거래 수: {raw_data.get('summary', {}).get('transactions', 0):,.0f}건
 - 이탈률: {raw_data.get('summary', {}).get('bounceRate', 0):.2%}
 
-[상위 페이지 5개]
+[인기 페이지 상위 5개]
 {format_top_pages(raw_data.get('pages', [])[:5])}
 
-[유입경로 상위 5개]
+[주요 유입경로 상위 5개]
 {format_traffic_sources(raw_data.get('traffic_sources', [])[:5])}
 
-사용자 질문에 짧고 명확하게 답변하세요. 숫자는 천 단위 쉼표로 표시하세요.
+사용자 질문에 대해 위 데이터를 기반으로 짧고 명확하게 답변하세요. 
+모든 숫자는 가독성을 위해 천 단위 쉼표(,)를 사용하세요.
 """
         
-        # 3. Claude API 호출
+        # 3. Claude AI 모델 호출
         response = claude.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-3-haiku-20240307", # 모델명 확인 필요
             max_tokens=1000,
             messages=[
                 {
                     "role": "user",
-                    "content": context + f"\n\n질문: {question}"
+                    "content": context + f"\n\n사용자 질문: {question}"
                 }
             ]
         )
         
         answer = response.content[0].text
+        # 사용된 토큰 계산
         tokens_used = response.usage.input_tokens + response.usage.output_tokens
         
-        # 4. 대화 기록 저장
+        # 4. Supabase에 대화 내역 저장
         save_chat_history(user_id, question, answer, tokens_used)
         
-        # 5. 토큰 차감 (입력+출력 합계)
+        # 5. 사용자 토큰 잔액 차감
         remaining_balance = update_token_balance(user_id, tokens_used)
         
         return jsonify({
@@ -124,18 +120,13 @@ def chat():
         })
         
     except Exception as e:
+        print(f"Chat Error: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/ga4/sync", methods=["POST"])
 def sync_ga4():
     """
-    GA4 데이터 동기화
-    
-    Request:
-    {
-        "user_id": 1,
-        "days": 30
-    }
+    GA4 실시간 데이터 동기화 엔드포인트
     """
     try:
         data = request.json
@@ -143,65 +134,62 @@ def sync_ga4():
         days = data.get("days", 30)
         
         if not user_id:
-            return jsonify({"error": "user_id 필수"}), 400
+            return jsonify({"error": "user_id가 누락되었습니다."}), 400
         
-        # GA4 데이터 추출
+        # GA4 데이터 추출 실행
         extractor = GA4TemplateExtractor(PROPERTY_ID, CREDENTIALS_PATH)
         all_data = extractor.extract_data(days)
         
-        # 날짜 계산
+        # 동기화 날짜 설정
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
         
-        # Supabase에 저장
+        # 추출된 데이터를 Supabase에 업로드
         result = save_ga4_data(user_id, str(start_date), str(end_date), all_data)
         
         return jsonify({
             "status": "success",
-            "data_id": result["id"],
+            "data_id": result.get("id"),
             "api_calls": all_data["info"]["api_calls"],
             "summary": all_data.get("summary", {})
         })
         
     except Exception as e:
+        print(f"Sync Error: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
-# 유틸리티 함수
+# --- 유틸리티 포맷팅 함수 ---
+
 def format_top_pages(pages):
-    """상위 페이지 포맷팅"""
+    """상위 페이지 리스트를 문자열로 포맷팅"""
     result = []
     for i, page in enumerate(pages, 1):
         metrics = page.get("metrics", {})
         result.append(
-            f"{i}. {page['pagePath']}\n"
-            f"   방문: {metrics.get('pageViews', 0):,.0f}회, "
-            f"사용자: {metrics.get('activeUsers', 0):,.0f}명"
+            f"{i}. {page.get('pagePath', '알 수 없음')}\n"
+            f"   조회수: {metrics.get('pageViews', 0):,.0f}회, 사용자: {metrics.get('activeUsers', 0):,.0f}명"
         )
     return "\n".join(result)
 
 def format_traffic_sources(sources):
-    """유입경로 포맷팅"""
+    """유입경로 리스트를 문자열로 포맷팅"""
     result = []
     for i, source in enumerate(sources, 1):
         result.append(
-            f"{i}. {source.get('sessionSource', 'N/A')} / {source.get('sessionMedium', 'N/A')}\n"
-            f"   사용자: {source.get('activeUsers', 0):,.0f}명, "
-            f"세션: {source.get('sessions', 0):,.0f}개"
+            f"{i}. {source.get('sessionSource', 'Direct')} / {source.get('sessionMedium', 'None')}\n"
+            f"   사용자: {source.get('activeUsers', 0):,.0f}명, 세션: {source.get('sessions', 0):,.0f}개"
         )
     return "\n".join(result)
 
-if __name__ == "__main__":
-    # 1. 환경변수 로드 확인
-    print(f"Token Check: {os.getenv('TELEGRAM_BOT_TOKEN')[:5]}***") 
-    
-    try:
-        # 2. 전송 시도
-        send_telegram_message("🚀 서버 가동 테스트")
-        
-        # 3. 서버 실행
-        app.run(debug=False, host="0.0.0.0", port=5000)
-        
-    except Exception as e:
-        # 전송 실패 시 이유 출력
-        print(f"‼️ 전송 중 에러 발생: {e}")
+# --- 서버 실행부 ---
 
+if __name__ == "__main__":
+    print("\n" + "="*50)
+    print("🚀 FrameFlow 로컬 API 서버를 시작합니다.")
+    print(f"   - 주소: http://0.0.0.0:5000")
+    print(f"   - 모드: Debug Mode (ON)")
+    print("="*50 + "\n")
+    
+    # 로컬 테스트이므로 debug=True를 사용해 코드 수정 시 자동 재시작되게 함
+    # host="0.0.0.0"은 외부 기기 접속을 허용함
+    app.run(debug=True, host="0.0.0.0", port=5000)
