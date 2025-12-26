@@ -9,8 +9,9 @@ import traceback
 # 로컬 모듈 import
 # 주의: 해당 파일들이 같은 디렉토리에 있어야 합니다.
 from supabase_client import (
-    get_user_by_wp_id, 
-    get_latest_ga4_data, 
+    supabase,
+    get_user_by_wp_id,
+    get_latest_ga4_data,
     save_chat_history,
     update_token_balance,
     save_ga4_data
@@ -132,28 +133,124 @@ def sync_ga4():
         data = request.json
         user_id = data.get("user_id")
         days = data.get("days", 30)
-        
+
         if not user_id:
             return jsonify({"error": "user_id가 누락되었습니다."}), 400
-        
+
         # GA4 데이터 추출 실행
         extractor = GA4TemplateExtractor(PROPERTY_ID, CREDENTIALS_PATH)
         all_data = extractor.extract_data(days)
-        
+
         # 동기화 날짜 설정
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
-        
+
         # 추출된 데이터를 Supabase에 업로드
         result = save_ga4_data(user_id, str(start_date), str(end_date), all_data)
-        
+
         return jsonify({
             "status": "success",
             "data_id": result.get("id"),
             "api_calls": all_data["info"]["api_calls"],
             "summary": all_data.get("summary", {})
         })
-        
+
+    except Exception as e:
+        print(f"Sync Error: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/user/register", methods=["POST"])
+def register_user():
+    """
+    WordPress 사용자 등록
+
+    Request:
+    {
+        "wp_user_id": 123,
+        "email": "user@example.com",
+        "ga4_property_id": "488770841",
+        "token_balance": 10000
+    }
+    """
+    try:
+        data = request.json
+        wp_user_id = data.get("wp_user_id")
+        email = data.get("email")
+        property_id = data.get("ga4_property_id")
+        token_balance = data.get("token_balance", 10000)
+
+        if not wp_user_id or not email or not property_id:
+            return jsonify({"error": "필수 정보 누락"}), 400
+
+        # Supabase에 사용자 등록
+        result = supabase.table("users").insert({
+            "wp_user_id": wp_user_id,
+            "email": email,
+            "token_balance": token_balance,
+            "plan": "beta"
+        }).execute()
+
+        user_id = result.data[0]["id"]
+
+        # GA4 계정 정보 저장 (공통 credentials 사용)
+        supabase.table("ga4_accounts").insert({
+            "user_id": user_id,
+            "property_id": property_id,
+            "credentials": CREDENTIALS_PATH,  # 공통 파일 경로
+            "is_active": True
+        }).execute()
+
+        return jsonify({
+            "status": "success",
+            "user_id": user_id,
+            "message": "사용자 등록 완료"
+        })
+
+    except Exception as e:
+        print(f"Register Error: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/ga4/sync-user", methods=["POST"])
+def sync_user_ga4():
+    """
+    특정 사용자의 GA4 데이터 동기화
+    (사용자별 Property ID 사용)
+    """
+    try:
+        data = request.json
+        user_id = data.get("user_id")
+        days = data.get("days", 30)
+
+        # 사용자의 GA4 계정 정보 조회
+        ga4_account = supabase.table("ga4_accounts")\
+            .select("property_id")\
+            .eq("user_id", user_id)\
+            .eq("is_active", True)\
+            .single()\
+            .execute()
+
+        if not ga4_account.data:
+            return jsonify({"error": "GA4 계정 정보가 없습니다"}), 404
+
+        property_id = ga4_account.data["property_id"]
+
+        # GA4 데이터 추출 (사용자의 Property ID 사용)
+        extractor = GA4TemplateExtractor(property_id, CREDENTIALS_PATH)
+        all_data = extractor.extract_data(days)
+
+        # Supabase에 저장
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+
+        result = save_ga4_data(user_id, str(start_date), str(end_date), all_data)
+
+        return jsonify({
+            "status": "success",
+            "data_id": result.get("id"),
+            "property_id": property_id,
+            "summary": all_data.get("summary", {})
+        })
+
     except Exception as e:
         print(f"Sync Error: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
