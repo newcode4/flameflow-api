@@ -190,30 +190,25 @@ def format_traffic_sources(sources):
         )
     return "\n".join(result)
 
+# app.py의 맨 아랫부분을 이렇게 수정하세요
+
 if __name__ == "__main__":
     print("\n" + "="*50)
     print("🚀 FrameFlow API Server Starting...")
     print("="*50 + "\n")
     
     try:
-        # 1. 서버 시작 알림 전송 (오타 수정됨)
+        # 1. 서버 시작 시 텔레그램 알림 (app.run 이전에 실행)
         send_telegram_message("✅ Vultr 서버에서 FrameFlow API가 가동되었습니다.")
         
-        # 2. Flask 서버 실행 (포트 5000)
-        # debug=False로 설정해야 안정적입니다.
+        # 2. Flask 서버 실행 (debug=False 권장)
         app.run(debug=False, host="0.0.0.0", port=5000)
         
     except Exception as e:
-        # 3. 에러 발생 시 상세 로그 추출 및 전송
+        # 3. 서버 실행 중 에러 발생 시 로그 전송
         error_detail = traceback.format_exc()
         error_msg = f"⚠️ **서버 중단 에러 발생!**\n\n```\n{error_detail}\n```"
-        
-        logger.error(f"Server Error: {e}")
-        try:
-            send_telegram_message(error_msg)
-        except:
-            pass
-
-
+        send_telegram_message(error_msg)
+        print(f"Error occurred: {e}")
 
 
