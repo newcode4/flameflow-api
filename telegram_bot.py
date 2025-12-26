@@ -1,4 +1,5 @@
 import telebot
+import subprocess
 import os
 from dotenv import load_dotenv
 
@@ -10,63 +11,105 @@ ALLOWED_USER_ID = int(os.getenv("TELEGRAM_USER_ID"))
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
+def run_command(cmd):
+    """시스템 명령 실행"""
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        return result.stdout + result.stderr
+    except Exception as e:
+        return f"❌ 에러: {str(e)}"
+
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
+    if message.from_user.id != ALLOWED_USER_ID:
+        bot.reply_to(message, "⛔ 권한 없음")
+        return
+    
+    run_command("sudo systemctl start frameflow")
+    bot.reply_to(message, "✅ FrameFlow 시작됨")
+
+@bot.message_handler(commands=['stop'])
+def cmd_stop(message):
+    if message.from_user.id != ALLOWED_USER_ID:
+        bot.reply_to(message, "⛔ 권한 없음")
+        return
+    
+    run_command("sudo systemctl stop frameflow")
+    bot.reply_to(message, "⏹️ FrameFlow 중지됨")
+
+@bot.message_handler(commands=['restart'])
+def cmd_restart(message):
+    if message.from_user.id != ALLOWED_USER_ID:
+        bot.reply_to(message, "⛔ 권한 없음")
+        return
+    
+    run_command("sudo systemctl restart frameflow")
+    bot.reply_to(message, "🔄 FrameFlow 재시작됨")
+
+@bot.message_handler(commands=['status'])
+def cmd_status(message):
+    if message.from_user.id != ALLOWED_USER_ID:
+        bot.reply_to(message, "⛔ 권한 없음")
+        return
+    
+    status = run_command("systemctl is-active frameflow")
+    
+    if "active" in status:
+        bot.reply_to(message, "🟢 FrameFlow 실행 중")
+    else:
+        bot.reply_to(message, "🔴 FrameFlow 중지됨")
+
+@bot.message_handler(commands=['logs'])
+def cmd_logs(message):
+    if message.from_user.id != ALLOWED_USER_ID:
+        bot.reply_to(message, "⛔ 권한 없음")
+        return
+    
+    logs = run_command("sudo journalctl -u frameflow -n 20 --no-pager")
+    
+    if len(logs) > 4000:
+        logs = logs[-4000:]
+    
+    bot.reply_to(message, f"📋 최근 로그:\n\n```\n{logs}\n```", parse_mode='Markdown')
+
+@bot.message_handler(commands=['update'])
+def cmd_update(message):
+    if message.from_user.id != ALLOWED_USER_ID:
+        bot.reply_to(message, "⛔ 권한 없음")
+        return
+    
+    bot.reply_to(message, "🔄 업데이트 시작...")
+    
+    result = run_command("cd /home/berryeasy/htdocs/berryeasy.co.kr/flameflow-api && git pull")
+    run_command("sudo systemctl restart frameflow")
+    
+    bot.reply_to(message, f"✅ 업데이트 완료\n\n{result}")
+
 @bot.message_handler(commands=['ping'])
 def cmd_ping(message):
-    """API 서버 상태 확인"""
     if message.from_user.id != ALLOWED_USER_ID:
         bot.reply_to(message, "⛔ 권한 없음")
         return
     
     try:
         import requests
-        
-        # 로컬 Flask 확인
         response = requests.get('http://localhost:5000/', timeout=5)
         
         if response.status_code == 200:
             data = response.json()
             bot.reply_to(message, 
-                f"✅ 로컬 Flask API 정상\n"
+                f"✅ Flask API 정상\n"
                 f"서비스: {data.get('service')}\n"
-                f"상태: {data.get('status')}\n"
                 f"버전: {data.get('version')}"
             )
-        else:
-            bot.reply_to(message, f"⚠️ 응답 코드: {response.status_code}")
-    
     except Exception as e:
-        bot.reply_to(message, f"❌ Flask API 연결 실패\n{str(e)}")
-
-@bot.message_handler(commands=['test'])
-def cmd_test(message):
-    """챗봇 테스트"""
-    if message.from_user.id != ALLOWED_USER_ID:
-        bot.reply_to(message, "⛔ 권한 없음")
-        return
-    
-    try:
-        import requests
-        
-        response = requests.post('http://localhost:5000/api/chat', 
-            json={
-                "user_id": 1,
-                "question": "활성 사용자 몇 명?"
-            },
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            bot.reply_to(message, 
-                f"💬 AI 답변:\n\n{data['answer']}\n\n"
-                f"토큰 사용: {data['tokens_used']}\n"
-                f"잔액: {data['remaining_balance']}"
-            )
-        else:
-            bot.reply_to(message, f"❌ 에러: {response.text}")
-    
-    except Exception as e:
-        bot.reply_to(message, f"❌ 챗봇 호출 실패\n{str(e)}")
+        bot.reply_to(message, f"❌ API 연결 실패\n{str(e)}")
 
 @bot.message_handler(commands=['help'])
 def cmd_help(message):
@@ -75,18 +118,19 @@ def cmd_help(message):
         return
     
     help_text = """
-🤖 BerryEasy Bot (로컬 테스트)
+🤖 BerryEasy Control Bot
 
-/ping - Flask API 상태 확인
-/test - AI 챗봇 테스트
+/start - 서비스 시작
+/stop - 서비스 중지
+/restart - 서비스 재시작
+/status - 상태 확인
+/logs - 최근 로그
+/update - Git 업데이트 + 재시작
+/ping - API 상태 확인
 /help - 도움말
-
-ℹ️ 로컬 테스트 모드입니다.
-Flask 서버가 실행 중이어야 합니다.
     """
     bot.reply_to(message, help_text)
 
 print("🤖 Telegram Bot 시작...")
 print(f"👤 허용된 사용자 ID: {ALLOWED_USER_ID}")
-print("💡 사용 가능 명령: /ping, /test, /help")
 bot.polling()
