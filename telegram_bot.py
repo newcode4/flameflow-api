@@ -19,6 +19,10 @@ ALLOWED_USER_ID = int(os.getenv("TELEGRAM_USER_ID"))
 IS_WINDOWS = platform.system() == "Windows"
 IS_LOCAL = os.getenv("ENVIRONMENT", "local") == "local"
 
+# 서버 환경 강제 감지 (Vultr 등)
+if not IS_WINDOWS and os.path.exists("/etc/os-release"):
+    IS_LOCAL = False
+
 bot = telebot.TeleBot(BOT_TOKEN)
 process_manager = ProcessManager()
 
@@ -317,12 +321,48 @@ def cmd_help(message):
 
 # 봇 시작 시 자동으로 에러 모니터링 활성화
 def initialize_bot():
-    """봇 초기화"""
+    """봇 초기화 및 시작 알림"""
     if not (IS_LOCAL or IS_WINDOWS):
         # 서버 환경에서만 자동 모니터링 시작
         if process_manager.is_running():
             start_error_monitoring()
             print("✅ 에러 모니터링이 자동으로 시작되었습니다.")
+        
+        # 서버 시작 알림 전송
+        try:
+            server_info = get_server_info()
+            startup_message = f"""🚀 FrameFlow 텔레그램 봇이 시작되었습니다!
+
+🖥️ 서버 정보:
+• 호스트: {server_info['hostname']}
+• OS: {server_info['os']}
+• Python: {server_info['python_version']}
+• 시작 시간: {server_info['start_time']}
+
+📊 현재 상태:
+• Flask 앱: {'🟢 실행 중' if process_manager.is_running() else '🔴 중지됨'}
+• 에러 모니터링: {'🟢 활성' if monitoring_active else '🔴 비활성'}
+
+💬 /help 명령으로 사용법을 확인하세요."""
+
+            bot.send_message(ALLOWED_USER_ID, startup_message)
+            print("📱 서버 시작 알림을 텔레그램으로 전송했습니다.")
+            
+        except Exception as e:
+            print(f"⚠️ 시작 알림 전송 실패: {e}")
+
+def get_server_info():
+    """서버 정보 수집"""
+    import socket
+    import sys
+    from datetime import datetime
+    
+    return {
+        'hostname': socket.gethostname(),
+        'os': f"{platform.system()} {platform.release()}",
+        'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        'start_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
 if __name__ == "__main__":
     # Windows 콘솔 인코딩 설정
@@ -345,6 +385,21 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\n🛑 봇이 종료되었습니다.")
         stop_error_monitoring()
+        
+        # 서버 종료 알림
+        if not (IS_LOCAL or IS_WINDOWS):
+            try:
+                bot.send_message(ALLOWED_USER_ID, "🛑 FrameFlow 텔레그램 봇이 종료되었습니다.")
+            except:
+                pass
+                
     except Exception as e:
         print(f"❌ 에러 발생: {e}")
         stop_error_monitoring()
+        
+        # 에러로 인한 종료 알림
+        if not (IS_LOCAL or IS_WINDOWS):
+            try:
+                bot.send_message(ALLOWED_USER_ID, f"💥 FrameFlow 봇 에러로 종료: {str(e)}")
+            except:
+                pass
