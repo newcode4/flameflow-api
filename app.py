@@ -196,18 +196,23 @@ if __name__ == "__main__":
     print("="*50 + "\n")
     
     try:
-        # 서버 시작 알림 전송
+        # 1. 서버 시작 알림 전송 (오타 수정됨)
         send_telegram_message("✅ Vultr 서버에서 FrameFlow API가 가동되었습니다.")
         
-        # Flask 서버 실행
+        # 2. Flask 서버 실행 (포트 5000)
+        # debug=False로 설정해야 안정적입니다.
         app.run(debug=False, host="0.0.0.0", port=5000)
         
     except Exception as e:
-        # 에러 발생 시 상세 내용을 텔레그램으로 전송
+        # 3. 에러 발생 시 상세 로그 추출 및 전송
         error_detail = traceback.format_exc()
         error_msg = f"⚠️ **서버 중단 에러 발생!**\n\n```\n{error_detail}\n```"
-        send_telegram_message(error_msg)
-        print(f"Error: {e}")
+        
+        logger.error(f"Server Error: {e}")
+        try:
+            send_telegram_message(error_msg)
+        except:
+            pass
 
 
 
