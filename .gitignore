@@ -1,0 +1,78 @@
+# frameflow-api/.gitignore
+
+# 환경 변수 (절대 업로드 금지!)
+.env
+*.env
+
+# 서비스 계정 키 (절대 업로드 금지!)
+service-account.json
+*.json
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 가상환경
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+
+# 임시 파일
+*.tmp
+ga4_template_*.json
+
+# 테스트 파일 (선택)
+test_*.py
+```
+
+---
+
+## 📁 Step 2: 프로젝트 구조 정리
+```
+frameflow-api/
+├── .gitignore              # ← 새로 만듦
+├── .env.example            # ← 새로 만듦 (예시용)
+├── requirements.txt
+├── README.md               # ← 새로 만듦
+│
+├── app.py                  # Flask 메인
+├── supabase_client.py      # Supabase 연결
+├── ga4_config.py           # GA4 설정
+├── ga4_extractor_template.py
+│
+├── credentials/            # ← 새 폴더
+│   └── .gitkeep           # (빈 폴더 유지용)
+│
+└── scripts/                # ← 새 폴더 (유틸리티)
+    └── save_ga4_to_supabase.py
