@@ -1,14 +1,18 @@
-from supabase import create_client
+from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
 
+# 환경변수 확인
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in .env")
+
 # Supabase 클라이언트 초기화
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_KEY")
-)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_user_by_wp_id(wp_user_id):
     """WordPress 사용자 ID로 조회"""
