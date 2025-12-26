@@ -4,6 +4,8 @@ import anthropic
 from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta
+import traceback
+from telegram_bot import send_telegram_message
 
 # 로컬 모듈
 from supabase_client import (
@@ -193,3 +195,38 @@ if __name__ == "__main__":
     print("🚀 FrameFlow API Server Starting...")
     print("="*50 + "\n")
     app.run(debug=True, host="0.0.0.0", port=5000)
+
+
+
+    # app.py 상단에 추가
+import traceback
+from telegram_bot import send_telegram_message
+
+# ... 기존 코드 생략 ...
+
+def main():
+    logger.info("Application started...")
+    # 시작 알림 (선택 사항)
+    # send_telegram_message("🚀 서버가 시작되었습니다.") 
+
+    while True:
+        try:
+            schedule.run_pending()
+            time.sleep(1)
+        except Exception as e:
+            # 에러 발생 시 상세 로그 추출
+            error_detail = traceback.format_exc()
+            error_msg = f"⚠️ **서버 실행 중 에러 발생!**\n\n```\n{error_detail}\n```"
+            
+            logger.error(f"Unexpected error: {e}")
+            # 텔레그램으로 에러 전송
+            try:
+                send_telegram_message(error_msg)
+            except Exception as bot_err:
+                logger.error(f"Failed to send telegram alert: {bot_err}")
+            
+            # 에러 발생 후 잠시 대기 (무한 루프 방지)
+            time.sleep(10) 
+
+if __name__ == "__main__":
+    main()
