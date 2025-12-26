@@ -5,6 +5,8 @@ import platform
 import time
 import threading
 import json
+import sys
+import psutil
 from datetime import datetime
 from dotenv import load_dotenv
 from process_manager import ProcessManager
@@ -365,6 +367,31 @@ def get_server_info():
     }
 
 if __name__ == "__main__":
+    # 중복 실행 방지
+    pid_file = "/tmp/telegram_bot.pid"
+    
+    # 기존 프로세스 체크
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, 'r') as f:
+                old_pid = int(f.read().strip())
+            
+            if psutil.pid_exists(old_pid):
+                proc = psutil.Process(old_pid)
+                if "telegram_bot.py" in " ".join(proc.cmdline()):
+                    print(f"❌ 텔레그램 봇이 이미 실행 중입니다 (PID: {old_pid})")
+                    print("기존 봇을 먼저 종료하세요: ./stop_server.sh")
+                    sys.exit(1)
+            
+            # 죽은 PID 파일 삭제
+            os.remove(pid_file)
+        except:
+            pass
+    
+    # 현재 PID 저장
+    with open(pid_file, 'w') as f:
+        f.write(str(os.getpid()))
+
     # Windows 콘솔 인코딩 설정
     if IS_WINDOWS:
         import sys
@@ -386,6 +413,10 @@ if __name__ == "__main__":
         print("\n\n🛑 봇이 종료되었습니다.")
         stop_error_monitoring()
         
+        # PID 파일 삭제
+        if os.path.exists(pid_file):
+            os.remove(pid_file)
+        
         # 서버 종료 알림
         if not (IS_LOCAL or IS_WINDOWS):
             try:
@@ -396,6 +427,10 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ 에러 발생: {e}")
         stop_error_monitoring()
+        
+        # PID 파일 삭제
+        if os.path.exists(pid_file):
+            os.remove(pid_file)
         
         # 에러로 인한 종료 알림
         if not (IS_LOCAL or IS_WINDOWS):
