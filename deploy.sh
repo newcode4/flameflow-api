@@ -39,13 +39,39 @@ if [ ! -f "credentials/service-account.json" ]; then
     echo "📁 credentials/service-account.json 파일을 추가하세요."
 fi
 
-# 7. 가상환경 경로 저장
+# 7. 기존 봇 프로세스 정리
+echo "🧹 기존 프로세스 정리..."
+pkill -f telegram_bot.py 2>/dev/null || true
+sleep 2
+
+# 8. 가상환경 경로 저장
 echo "$(pwd)/venv/bin/python" > /tmp/frameflow_python_path
 
-# 8. 텔레그램 봇을 백그라운드에서 실행 (가상환경 사용)
+# 9. 텔레그램 봇을 백그라운드에서 실행 (가상환경 사용)
 echo "🤖 텔레그램 봇 시작..."
+
+# 중복 실행 방지 체크
+if [ -f "/tmp/telegram_bot.pid" ]; then
+    OLD_PID=$(cat /tmp/telegram_bot.pid)
+    if ps -p $OLD_PID > /dev/null 2>&1; then
+        echo "⚠️ 기존 봇이 실행 중입니다. 종료 후 재시작..."
+        kill $OLD_PID 2>/dev/null || true
+        sleep 3
+    fi
+fi
+
 nohup ./venv/bin/python telegram_bot.py > /tmp/frameflow_logs/telegram_bot.log 2>&1 &
-echo $! > /tmp/telegram_bot.pid
+NEW_PID=$!
+echo $NEW_PID > /tmp/telegram_bot.pid
+
+# 시작 확인
+sleep 2
+if ps -p $NEW_PID > /dev/null; then
+    echo "✅ 텔레그램 봇이 성공적으로 시작되었습니다 (PID: $NEW_PID)"
+else
+    echo "❌ 텔레그램 봇 시작에 실패했습니다"
+    echo "로그 확인: tail -f /tmp/frameflow_logs/telegram_bot.log"
+fi
 
 echo "✅ 배포 완료!"
 echo ""
