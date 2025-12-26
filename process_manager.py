@@ -5,6 +5,7 @@ Flask 앱 프로세스 관리자
 - 프로세스 상태 모니터링
 - 자동 재시작 기능
 - 로그 관리
+- 가상환경 지원
 """
 
 import subprocess
@@ -22,6 +23,29 @@ class ProcessManager:
         self.log_file = "/tmp/frameflow_app.log"
         self.error_log_file = "/tmp/frameflow_error.log"
         self.app_script = "app.py"
+        
+        # 가상환경 Python 경로 확인
+        self.python_path = self._get_python_path()
+        
+    def _get_python_path(self):
+        """가상환경 Python 경로 찾기"""
+        # 1. 저장된 경로 확인
+        if os.path.exists("/tmp/frameflow_python_path"):
+            try:
+                with open("/tmp/frameflow_python_path", 'r') as f:
+                    path = f.read().strip()
+                    if os.path.exists(path):
+                        return path
+            except:
+                pass
+        
+        # 2. 현재 디렉토리의 가상환경 확인
+        venv_python = os.path.join(os.getcwd(), "venv", "bin", "python")
+        if os.path.exists(venv_python):
+            return venv_python
+        
+        # 3. 기본 python3 사용
+        return "python3"
         
     def is_running(self):
         """프로세스가 실행 중인지 확인"""
@@ -54,10 +78,11 @@ class ProcessManager:
             # 로그 파일 초기화
             with open(self.log_file, 'w') as f:
                 f.write(f"=== FrameFlow 시작: {datetime.now()} ===\n")
+                f.write(f"Python 경로: {self.python_path}\n")
             
             # Flask 앱 백그라운드 실행
             process = subprocess.Popen(
-                ["python3", self.app_script],
+                [self.python_path, self.app_script],
                 stdout=open(self.log_file, 'a'),
                 stderr=open(self.error_log_file, 'a'),
                 preexec_fn=os.setsid  # 새로운 세션 그룹 생성
@@ -73,7 +98,8 @@ class ProcessManager:
                 return {
                     "status": "started", 
                     "message": "FrameFlow가 성공적으로 시작되었습니다.",
-                    "pid": process.pid
+                    "pid": process.pid,
+                    "python_path": self.python_path
                 }
             else:
                 return {"status": "failed", "message": "앱 시작에 실패했습니다. 로그를 확인하세요."}
@@ -125,7 +151,8 @@ class ProcessManager:
                 "status": "stopped",
                 "message": "FrameFlow가 중지되어 있습니다.",
                 "uptime": None,
-                "memory": None
+                "memory": None,
+                "python_path": self.python_path
             }
         
         try:
@@ -141,7 +168,8 @@ class ProcessManager:
                 "message": "FrameFlow가 실행 중입니다.",
                 "pid": pid,
                 "uptime": f"{int(uptime//3600)}시간 {int((uptime%3600)//60)}분",
-                "memory": f"{memory:.1f}MB"
+                "memory": f"{memory:.1f}MB",
+                "python_path": self.python_path
             }
             
         except Exception as e:
