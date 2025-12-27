@@ -175,20 +175,18 @@ def register_user():
         if not all([wp_user_id, email, property_id]):
             return jsonify({"error": "필수 정보 누락"}), 400
 
-        # 1. users 테이블에 등록
         user_response = supabase.table("users").insert({
             "wp_user_id": wp_user_id,
             "email": email,
-            "token_balance": 100000  # 초기 토큰 10만개
+            "token_balance": 100000
         }).execute()
 
         user_id = user_response.data[0]["id"]
 
-        # 2. ga4_accounts 테이블에 Property ID 저장
         supabase.table("ga4_accounts").insert({
             "user_id": user_id,
             "property_id": property_id,
-            "credentials": None  # 공통 service-account 사용
+            "credentials": None
         }).execute()
 
         return jsonify({
@@ -202,30 +200,6 @@ def register_user():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/user/get-by-wp-id", methods=["POST"])
-def get_user_by_wp_id():
-    """WordPress ID로 Supabase user_id 찾기"""
-    try:
-        data = request.json
-        wp_user_id = data.get("wp_user_id")
-
-        if not wp_user_id:
-            return jsonify({"error": "wp_user_id 필요"}), 400
-
-        response = supabase.table("users").select("*").eq("wp_user_id", wp_user_id).execute()
-
-        if not response.data:
-            return jsonify({"error": "사용자 없음"}), 404
-
-        return jsonify({
-            "success": True,
-            "user": response.data[0]
-        })
-
-    except Exception as e:
-        print(f"Get User Error: {traceback.format_exc()}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/api/ga4/sync-user", methods=["POST"])
 def sync_user_ga4():
     """사용자별 GA4 데이터 수집"""
@@ -236,21 +210,18 @@ def sync_user_ga4():
         if not wp_user_id:
             return jsonify({"error": "wp_user_id 필요"}), 400
 
-        # 1. user_id 찾기
         user_response = supabase.table("users").select("id").eq("wp_user_id", wp_user_id).execute()
         if not user_response.data:
             return jsonify({"error": "사용자 없음"}), 404
 
         user_id = user_response.data[0]["id"]
 
-        # 2. Property ID 찾기
         ga4_response = supabase.table("ga4_accounts").select("property_id").eq("user_id", user_id).execute()
         if not ga4_response.data:
             return jsonify({"error": "GA4 Property ID 없음"}), 404
 
         property_id = ga4_response.data[0]["property_id"]
 
-        # 3. GA4 데이터 수집 (ga4_extractor_template.py 사용)
         extractor = GA4TemplateExtractor(property_id, CREDENTIALS_PATH)
         all_data = extractor.extract_data(days=30)
 
@@ -263,7 +234,6 @@ def sync_user_ga4():
             "info": all_data.get("info", {})
         }
 
-        # 4. Supabase에 저장
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=30)
 
@@ -280,6 +250,7 @@ def sync_user_ga4():
     except Exception as e:
         print(f"Sync Error: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
+
 
 # --- 유틸리티 포맷팅 함수 ---
 
