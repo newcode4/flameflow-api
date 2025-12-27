@@ -230,6 +230,10 @@ def cmd_monitor(message):
 
 @bot.message_handler(commands=['update'])
 def cmd_update(message):
+    """
+    Git Pull + 패키지 업데이트 + 재시작
+    가상환경 자동 감지 및 적용
+    """
     if message.from_user.id != ALLOWED_USER_ID:
         bot.reply_to(message, "⛔ 권한 없음")
         return
@@ -237,31 +241,64 @@ def cmd_update(message):
     if IS_LOCAL or IS_WINDOWS:
         bot.reply_to(message, "⚠️ 로컬 환경에서는 git pull을 수동으로 실행하세요.")
     else:
-        bot.reply_to(message, "🔄 업데이트 시작...")
+        bot.reply_to(message, "🔄 업데이트 시작...\n잠시만 기다려주세요.")
 
-        # Git pull
-        result = run_command("git pull")
-        
-        # 의존성 업데이트
-        pip_result = run_command("pip3 install -r requirements.txt")
-        
-        # 앱 재시작
-        restart_result = process_manager.restart()
-        
-        # 에러 모니터링 재시작
-        start_error_monitoring()
+        try:
+            # 현재 작업 디렉토리 확인
+            current_dir = os.path.dirname(os.path.abspath(__file__))
 
-        update_msg = f"""✅ 업데이트 완료
+            # 가상환경 경로 자동 탐지
+            venv_paths = [
+                os.path.join(current_dir, 'venv', 'bin', 'python3'),
+                os.path.join(current_dir, 'venv', 'bin', 'pip3'),
+                '/usr/bin/python3',  # 시스템 Python (fallback)
+            ]
+
+            # 가상환경 pip 찾기
+            pip_cmd = None
+            for venv_pip in [os.path.join(current_dir, 'venv', 'bin', 'pip3'), 'pip3']:
+                if os.path.exists(venv_pip) or venv_pip == 'pip3':
+                    pip_cmd = venv_pip
+                    break
+
+            # 1. Git stash (충돌 방지)
+            stash_result = run_command(f"cd {current_dir} && git stash")
+
+            # 2. Git pull origin main
+            pull_result = run_command(f"cd {current_dir} && git pull origin main")
+
+            # 3. Git stash pop (필요시)
+            if "No local changes to save" not in stash_result:
+                run_command(f"cd {current_dir} && git stash pop")
+
+            # 4. 의존성 업데이트 (가상환경 사용)
+            pip_result = run_command(f"cd {current_dir} && {pip_cmd} install -r requirements.txt")
+
+            # 5. 앱 재시작
+            restart_result = process_manager.restart()
+
+            # 6. 에러 모니터링 재시작
+            start_error_monitoring()
+
+            # 결과 요약
+            update_msg = f"""✅ 업데이트 완료!
+
+📂 경로: {current_dir}
 
 📥 Git Pull:
-{result[:500]}
+{pull_result[:400]}
 
 📦 패키지 업데이트:
-{pip_result[:300]}
+{pip_result[:250]}
 
-🔄 재시작: {restart_result['message']}"""
+🔄 재시작: {restart_result['message']}
 
-        bot.reply_to(message, update_msg)
+✨ 변경사항이 적용되었습니다!"""
+
+            bot.reply_to(message, update_msg)
+
+        except Exception as e:
+            bot.reply_to(message, f"❌ 업데이트 실패\n\n에러: {str(e)}\n\n수동으로 확인이 필요합니다.")
 
 @bot.message_handler(commands=['ping'])
 def cmd_ping(message):
