@@ -207,6 +207,10 @@ def sync_user_ga4():
         data = request.json
         wp_user_id = data.get("wp_user_id")
 
+        # 🔍 디버깅 로그 추가
+        print(f"[DEBUG] Received data: {data}")
+        print(f"[DEBUG] wp_user_id: {wp_user_id}, type: {type(wp_user_id)}")
+
         if not wp_user_id:
             return jsonify({"error": "wp_user_id 필요"}), 400
 
