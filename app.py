@@ -159,49 +159,40 @@ def sync_ga4():
         print(f"Sync Error: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
+# ============================================
+# MVP 추가 엔드포인트 (2025-12-27)
+# ============================================
+
 @app.route("/api/user/register", methods=["POST"])
 def register_user():
-    """
-    WordPress 사용자 등록
-
-    Request:
-    {
-        "wp_user_id": 123,
-        "email": "user@example.com",
-        "ga4_property_id": "488770841",
-        "token_balance": 10000
-    }
-    """
+    """WordPress에서 사용자 등록"""
     try:
         data = request.json
         wp_user_id = data.get("wp_user_id")
         email = data.get("email")
-        property_id = data.get("ga4_property_id")
-        token_balance = data.get("token_balance", 10000)
+        property_id = data.get("property_id")
 
-        if not wp_user_id or not email or not property_id:
+        if not all([wp_user_id, email, property_id]):
             return jsonify({"error": "필수 정보 누락"}), 400
 
-        # Supabase에 사용자 등록
-        result = supabase.table("users").insert({
+        # 1. users 테이블에 등록
+        user_response = supabase.table("users").insert({
             "wp_user_id": wp_user_id,
             "email": email,
-            "token_balance": token_balance,
-            "plan": "beta"
+            "token_balance": 100000  # 초기 토큰 10만개
         }).execute()
 
-        user_id = result.data[0]["id"]
+        user_id = user_response.data[0]["id"]
 
-        # GA4 계정 정보 저장 (공통 credentials 사용)
+        # 2. ga4_accounts 테이블에 Property ID 저장
         supabase.table("ga4_accounts").insert({
             "user_id": user_id,
             "property_id": property_id,
-            "credentials": CREDENTIALS_PATH,  # 공통 파일 경로
-            "is_active": True
+            "credentials": None  # 공통 service-account 사용
         }).execute()
 
         return jsonify({
-            "status": "success",
+            "success": True,
             "user_id": user_id,
             "message": "사용자 등록 완료"
         })
@@ -210,45 +201,80 @@ def register_user():
         print(f"Register Error: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/ga4/sync-user", methods=["POST"])
-def sync_user_ga4():
-    """
-    특정 사용자의 GA4 데이터 동기화
-    (사용자별 Property ID 사용)
-    """
+
+@app.route("/api/user/get-by-wp-id", methods=["POST"])
+def get_user_by_wp_id():
+    """WordPress ID로 Supabase user_id 찾기"""
     try:
         data = request.json
-        user_id = data.get("user_id")
-        days = data.get("days", 30)
+        wp_user_id = data.get("wp_user_id")
 
-        # 사용자의 GA4 계정 정보 조회
-        ga4_account = supabase.table("ga4_accounts")\
-            .select("property_id")\
-            .eq("user_id", user_id)\
-            .eq("is_active", True)\
-            .single()\
-            .execute()
+        if not wp_user_id:
+            return jsonify({"error": "wp_user_id 필요"}), 400
 
-        if not ga4_account.data:
-            return jsonify({"error": "GA4 계정 정보가 없습니다"}), 404
+        response = supabase.table("users").select("*").eq("wp_user_id", wp_user_id).execute()
 
-        property_id = ga4_account.data["property_id"]
-
-        # GA4 데이터 추출 (사용자의 Property ID 사용)
-        extractor = GA4TemplateExtractor(property_id, CREDENTIALS_PATH)
-        all_data = extractor.extract_data(days)
-
-        # Supabase에 저장
-        end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=days)
-
-        result = save_ga4_data(user_id, str(start_date), str(end_date), all_data)
+        if not response.data:
+            return jsonify({"error": "사용자 없음"}), 404
 
         return jsonify({
-            "status": "success",
-            "data_id": result.get("id"),
+            "success": True,
+            "user": response.data[0]
+        })
+
+    except Exception as e:
+        print(f"Get User Error: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/ga4/sync-user", methods=["POST"])
+def sync_user_ga4():
+    """사용자별 GA4 데이터 수집"""
+    try:
+        data = request.json
+        wp_user_id = data.get("wp_user_id")
+
+        if not wp_user_id:
+            return jsonify({"error": "wp_user_id 필요"}), 400
+
+        # 1. user_id 찾기
+        user_response = supabase.table("users").select("id").eq("wp_user_id", wp_user_id).execute()
+        if not user_response.data:
+            return jsonify({"error": "사용자 없음"}), 404
+
+        user_id = user_response.data[0]["id"]
+
+        # 2. Property ID 찾기
+        ga4_response = supabase.table("ga4_accounts").select("property_id").eq("user_id", user_id).execute()
+        if not ga4_response.data:
+            return jsonify({"error": "GA4 Property ID 없음"}), 404
+
+        property_id = ga4_response.data[0]["property_id"]
+
+        # 3. GA4 데이터 수집 (ga4_extractor_template.py 사용)
+        extractor = GA4TemplateExtractor(property_id, CREDENTIALS_PATH)
+        all_data = extractor.extract_data(days=30)
+
+        ga4_data = {
+            "summary": all_data.get("summary", {}),
+            "pages": all_data.get("pages", []),
+            "events": all_data.get("events", []),
+            "transactions": all_data.get("transactions", []),
+            "traffic_sources": all_data.get("traffic_sources", []),
+            "info": all_data.get("info", {})
+        }
+
+        # 4. Supabase에 저장
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=30)
+
+        result = save_ga4_data(user_id, str(start_date), str(end_date), ga4_data)
+
+        return jsonify({
+            "success": True,
+            "message": "GA4 데이터 수집 완료",
+            "user_id": user_id,
             "property_id": property_id,
-            "summary": all_data.get("summary", {})
+            "data_id": result.get("id") if result else None
         })
 
     except Exception as e:
