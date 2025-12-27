@@ -1,9 +1,21 @@
+# Flask 및 웹 프레임워크
 flask==3.0.0
 flask-cors==4.0.0
+
+# AI 및 데이터 분석
 anthropic==0.40.0
-python-dotenv==1.0.0
 google-analytics-data==0.18.0
+
+# 데이터베이스
+supabase==2.0.2
+
+# 스케줄러
+APScheduler==3.10.4
+
+# 알림 및 통신
 pyTelegramBotAPI==4.14.0
 requests==2.31.0
+
+# 유틸리티
+python-dotenv==1.0.0
 psutil==5.9.6
-supabase==2.0.2
